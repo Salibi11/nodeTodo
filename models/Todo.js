@@ -11,7 +11,7 @@ import 'dotenv/config'
 const todoSchema=mongoose.Schema({
     userId:{type:mongoose.Schema.Types.ObjectId,ref:"User"}  ,
     userName:String,
-    title:{type:String ,lowercase:true, required:true},
+    title:{type:String /*lowercase:true*/, required:true},
     completed :{type:Boolean,default:false},
     deleted : {type:Boolean,default:false}
 },{optimisticConcurrency:true})
@@ -65,24 +65,26 @@ try{
 
      const search=req.query.search || ''
      
+
+     /*
      //منع البحث بحروف كبيرة
      const hasUpperCase = /[A-Z]/.test(search);
      if (hasUpperCase) return res.status(400).send("Error: Capital letters are not allowed in search. Please use lowercase only.");
         
-     
+     */
 
      function escapeRegex(string) {
         // هذه الدالة تبحث عن كل الرموز الخاصة وتلغي مفعولها البرمجي
         return string.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');}
 
      //clean search word from special letters
-     //const cleanSearch=escapeRegex(search)
+     const cleanSearch=escapeRegex(search)
 
 
 
 
         
-     const query={userId:req.user.id,deleted:false,title:{$regex:search,$options:"ixm"}}
+     const query={userId:req.user.id,deleted:false,title:{$regex:cleanSearch,$options:"ixm"}}
 
      const skip=(page-1)*limit
      const totaTodos= await Todo.countDocuments(query)
@@ -117,7 +119,7 @@ export async function completeTodo(req,res) {
         return res.send(`The Todo ${wantedTodo.title} has completed successfully`)
 
     } catch (error) {
-        console.log(error.message);
+       return res.status(500).send(error.message);
         
     }
 }
@@ -157,11 +159,11 @@ export async function deleteTodoPermanently(req,res) {
         
         const {title}=req.body
         
-        const wantedTodo=await Todo.findOne({title:title,userId:currentUser._id})
+        const wantedTodo=await Todo.findOne({title:title,userId:req.user.id})
         if(!wantedTodo) return res.status(400).send(`Todo not found`)
         //await Todo.deleteOne(wantedTodo) OR
         await Todo.findByIdAndDelete(wantedTodo._id)
-        if(wantedTodo.deleted==false) await User.findByIdAndDelete(req.user.id,{$inc:{todoCounts:-1}})
+        if(wantedTodo.deleted==false) await User.findByIdAndUpdate(req.user.id,{$inc:{todoCounts:-1}})
         
         
         return res.send(`The Todo ${wantedTodo.title} has deleted permanently successfully`)

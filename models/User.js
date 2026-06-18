@@ -72,7 +72,20 @@ export async function giveToken(dbUser,res){
     process.env.rToken = Rtoken;
     process.env.aToken = token;
 
-    return res.json({ message: `login success`, token: token, Rtoken: Rtoken });
+
+    res.cookie("accessToken", token, {
+        httpOnly: true,                     // منع الجافا سكريبت من سرقته
+        secure: process.env.NODE_ENV === "production", // تشفير الكوكيز عبر HTTPS فقط في الموقع الحقيقي
+        maxAge: 15 * 60 * 1000              // مدة الصلاحية بالملي ثانية (15 دقيقة)
+    });
+
+    res.cookie("refreshToken", Rtoken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 7 * 24 * 60 * 60 * 1000     // مدة الصلاحية بالملي ثانية (7 أيام)
+    });
+
+    return res.json({ message: `login success ${dbUser.name}`})
   } catch (error) {
     return res.status(500).send(error.message);
   }
