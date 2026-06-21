@@ -1,5 +1,4 @@
 import mongoose from "mongoose"
-import bcrypt from "bcryptjs"
 import { User,decider } from "./User.js"
 import jwt from 'jsonwebtoken'
 import 'dotenv/config'

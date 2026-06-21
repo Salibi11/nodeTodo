@@ -5,6 +5,7 @@ import "dotenv/config"
 
 const userSchema=mongoose.Schema({
     name:String  ,
+    gmail:String,
     password:{type:String , required:true},
     todoCounts:{type:Number,default:0},
     rT:String
@@ -18,36 +19,52 @@ export const User=mongoose.model("User",userSchema)
 export async function createUser(req,res){
 try{
 
-const {name,password}=req.body
-if(!name||!password) return res.status(400).send(`name and password are required`);
+const {name,gmail,password}=req.body
+if(!name||!gmail||!password) return res.status(400).send(`all feilds are required`);
+
+if(!gmail.endsWith("@gmail.com")) return res.status(400).send("please enter a valid gmail address")
+
+const existedGmail= await User.findOne({gmail:gmail})
+
+if(existedGmail) return res.status(400).send('OPS , gamil address is used')
+//OR
+/*
+const gmailRegex = /@gmail\.com$/;
+
+if (!gmailRegex.test(gmail)) {
+    return res.status(400).send("please enter a valid gmail address");
+}
+*/
 
 const salt=await bcrypt.genSalt(10)
 const hashedPassword=await bcrypt.hash(password,salt)
-const newUser=new User({name:name,password:hashedPassword})
+const newUser=new User({name:name,gmail:gmail,password:hashedPassword})
 await newUser.save()
-res.send(`Welcome ${req.body.name} in todo db`)
+res.send(`Welcome ${name} in todo db`)
 }
 catch(error){
-return res.status(401).send(error.message)
+return res.status(500).send(error.message)
 }
 }
 
 //////////////////////////////////////////////////////////////////////////////
 export const login=async (req,res)=>{
     try{
-const {name,password}=req.body;
-if(!name||!password) return res.status(400).send(`name and password are required`);
+const {gmail,password}=req.body;
+if(!gmail||!password) return res.status(400).send(`name and password are required`);
 
-const dbuser=await User.findOne({name:name})
-if(!dbuser) return res.send("no user found")
+const dbuser=await User.findOne({gmail:gmail})
+if(!dbuser) return res.status(400).send("no user found")
+
 const verifiedPassword=await bcrypt.compare(password,dbuser.password)
 if(!verifiedPassword) return res.status(400).send(`infomation invalid`)
-return await giveToken(dbuser,res)
+
+return giveToken(dbuser,res)
 
 
 }
 catch(error)
-{console.log(error.message);}
+{return res.status(500).send(error.message);}
 }
 
 
@@ -56,7 +73,7 @@ catch(error)
 //////////////////////////////////////////////////////////////////////////
 export async function giveToken(dbUser,res){
   try {
-    const Rtoken = await jwt.sign(
+    const Rtoken = jwt.sign(
       { id: dbUser._id, name: dbUser.name },
       process.env.refreshKey,
       { expiresIn: "7m" },
@@ -65,24 +82,24 @@ export async function giveToken(dbUser,res){
     await dbUser.save();
 
     const load = { id: dbUser._id, name: dbUser.name, rT: dbUser.rT };
-    const token = await jwt.sign(load, process.env.accessKey, {
+    const token =  jwt.sign(load, process.env.accessKey, {
       expiresIn: "1m",
     });
 
-    process.env.rToken = Rtoken;
-    process.env.aToken = token;
 
 
     res.cookie("accessToken", token, {
+        sameSite: "lax",
         httpOnly: true,                     // منع الجافا سكريبت من سرقته
         secure: process.env.NODE_ENV === "production", // تشفير الكوكيز عبر HTTPS فقط في الموقع الحقيقي
-        maxAge: 15 * 60 * 1000              // مدة الصلاحية بالملي ثانية (15 دقيقة)
+        maxAge: 1 * 60 * 1000              // مدة الصلاحية بالملي ثانية (15 دقيقة)
     });
 
     res.cookie("refreshToken", Rtoken, {
+        sameSite: "lax",
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000     // مدة الصلاحية بالملي ثانية (7 أيام)
+        maxAge: 7 * 60 * 1000     // مدة الصلاحية بالملي ثانية (7 أيام)
     });
 
     return res.json({ message: `login success ${dbUser.name}`})
@@ -100,6 +117,9 @@ export async function logout(req,res) {
 
 
         const currentUser=await User.findByIdAndUpdate(req.user.id,{rT:''},{new:true})
+        // مسح الكوكيز من متصفح المستخدم عند خروجه
+        res.clearCookie("accessToken");
+        res.clearCookie("refreshToken");
         
         return res.send(`logged out successfully,${currentUser.name}`)
 
@@ -112,13 +132,15 @@ export async function logout(req,res) {
 
 
 
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 export async function decider(req,res,next) 
 {
 
     try {
-    const auth=req.headers["authorization"]
-    const token = auth.split(' ')[1]
+    const token = req.cookies?.accessToken;
+    if (!token) return res.status(401).send("Access Token is missing, please login");
+
     const decode= jwt.verify(token,process.env.accessKey)
     const currentUser=await User.findById(decode.id)
     if (!currentUser) return res.status(401).send("User not found");
@@ -132,19 +154,22 @@ export async function decider(req,res,next)
         return res.status(401).send(`Token error: ${error.message}`);
     }
     
-    // أي خطأ آخر غير متوقع (مثل مشكلة في قاعدة البيانات) يكون 500
-    console.error("Database or Server Error:", error.message); // لكي تراه أنت في لوحة التحكم
-    return res.status(500).send("Internal Server Error");
+    return res.status(500).send(`Internal Server Error ${error.message}`);
 }
 
 }
+
+
+
+
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////
 export const refresh = async (req, res) => {
     try {
-        const { rT } = req.body;
-        if (!rT) return res.status(401).send("rT is required");
-        
+        const rT = req.cookies?.refreshToken;
+        if (!rT) return res.status(401).send("Refresh Token is missing");
         // 1. فك التوكن (بدون await)
         const decode = jwt.verify(rT, process.env.refreshKey);
        
@@ -166,11 +191,13 @@ export const refresh = async (req, res) => {
         
         const newAccToken = jwt.sign({ id: decode.id, name: decode.name, rT: newRefToken }, process.env.accessKey, { expiresIn: '1m' });
         
-        return res.json({
-            message: "Refreshing done", // تم تصحيح الكلمة الإملائية massage إلى message
-            newAccToken: newAccToken,
-            newRefToken: newRefToken
-        });
+        res.cookie("accessToken", newAccToken, { httpOnly: true, secure: process.env.NODE_ENV === "production", maxAge: 1 * 60 * 1000 });
+        res.cookie("refreshToken", newRefToken, { httpOnly: true, secure: process.env.NODE_ENV === "production", maxAge: 7 * 60 * 1000 });
+
+
+
+        return res.json({message: "Refreshing done"})
+
 
     } catch (error) {
         // إذا فشل فك التوكن بسبب انتهائه أو تلفه، نرسل 401 بدلاً من 500
