@@ -139,7 +139,7 @@ export async function decider(req,res,next)
 
     try {
     const token = req.cookies?.accessToken;
-    if (!token) return res.status(401).send("Access Token is missing, please login");
+    if (!token) return res.status(401).send("please first login");
 
     const decode= jwt.verify(token,process.env.accessKey)
     const currentUser=await User.findById(decode.id)
@@ -177,13 +177,13 @@ export const refresh = async (req, res) => {
         const currentUser = await User.findById(decode.id);
         if (!currentUser) return res.status(401).send("User not found");
 
-        // 🔥 حزام الأمان: التأكد أن التوكن المرسل هو نفسه المخزن في القاعدة ولم يتم إبطاله
+        // حزام الأمان: التأكد أن التوكن المرسل هو نفسه المخزن في القاعدة ولم يتم إبطاله
         if (currentUser.rT !== rT) {
             return res.status(403).send("Invalid Refresh Token. Please login again.");
         }
 
         // 3. توليد التوكنات الجديدة (بدون await)
-        const newRefToken = jwt.sign({ id: decode.id, name: decode.name }, process.env.refreshKey, { expiresIn: '10m' });
+        const newRefToken = jwt.sign({ id: decode.id, name: decode.name }, process.env.refreshKey, { expiresIn: '7m' });
         
         // 4. تحديث التوكن الجديد في القاعدة
         currentUser.rT = newRefToken;
